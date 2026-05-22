@@ -18,14 +18,19 @@ SystolicAI aims to simulate these architectural principles in software. Instead 
 - Hardware utilization
 - Memory bandwidth effects
 
-## ✨ Key Features (Phase 1)
+## ✨ Key Features
 
-1. **Processing Element (PE)**: Cycle-accurate MAC operations, local accumulation, and data forwarding.
-2. **Systolic Array Grid**: Configurable PE grids (e.g., 2x2, 4x4, 8x8) supporting synchronized data propagation.
-3. **Matrix Multiplication Engine**: Tiled execution and streaming inputs for $C = A \times B$.
-4. **Cycle-Accurate Simulation**: Advances one clock cycle at a time, tracking PE activity and compute latency.
-5. **Performance Metrics**: Reports execution cycles, throughput (MACs/cycle), and PE utilization.
-6. **Visualization Engine**: Generates heatmap visualizations of array activity and line plots for utilization over time.
+1. **Processing Element (PE)**: Cycle-accurate MAC operations, local accumulation, activation/weight loading, and horizontal/vertical data forwarding.
+2. **Multiple Dataflow Architectures**:
+   - **Output Stationary (OS)**: Accumulates partial sums locally in PE registers.
+   - **Weight Stationary (WS)**: Pre-loads and pins weights in PEs; streams partial sums down columns.
+   - **Row Stationary (RS)**: Pre-loads and pins activations in PEs; streams partial sums horizontally across rows.
+3. **Systolic Array Grid**: Configurable PE grids (e.g., 2x2, 4x4, 8x8) supporting synchronized data propagation.
+4. **CNN Convolution Workloads**: Native 2D Convolution layers simulated on the systolic array by mapping them to GEMM via `im2col` lowering and `col2im` output reconstruction.
+5. **Matrix Multiplication Engine**: Tiled execution and skewing schedulers supporting arbitrary matrix dimensions.
+6. **Cycle-Accurate Simulation**: Advances one clock cycle at a time, tracking PE grid activity, power state, and compute latency.
+7. **Performance Metrics**: Reports total cycles, throughput (MACs/cycle), and spatial PE utilization.
+8. **Visualization Dashboard**: Streamlit-based interactive web dashboard with config controls for array size, dataflow, workload parameters, correctness verification alerts, and cycle-by-cycle activity heatmaps.
 
 ## 🏗️ System Architecture
 
@@ -90,7 +95,7 @@ pytest tests/
 
 ## 🗺️ Roadmap
 
-- **Phase 1 (Current):** Basic systolic simulator, output stationary matmul, metrics, and visualization.
-- **Phase 2:** CNN convolution support, multiple dataflows (weight stationary, row stationary).
+- **Phase 1 (Completed):** Basic systolic simulator, output stationary matmul, metrics, and visualization.
+- **Phase 2 (Completed):** CNN convolution support, multiple dataflows (Weight Stationary, Row Stationary), correctness verification alerts, Streamlit UI controls.
 - **Phase 3:** Sparse matrix acceleration, quantization support, transformer attention kernels.
 - **Phase 4:** RTL backend, FPGA mapping, RISC-V custom instruction integration.

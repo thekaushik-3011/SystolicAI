@@ -4,33 +4,57 @@ Systolic Array Grid Module.
 from src.pe import ProcessingElement
 
 class SystolicArray:
-    def __init__(self, rows, cols):
+    def __init__(self, rows, cols, dataflow="OS"):
         self.rows = rows
         self.cols = cols
-        self.grid = [[ProcessingElement(r, c) for c in range(cols)] for r in range(rows)]
+        self.dataflow = dataflow
+        self.grid = [[ProcessingElement(r, c, dataflow=dataflow) for c in range(cols)] for r in range(rows)]
         
-    def step(self, activation_inputs, weight_inputs):
+    def load_weights(self, weights_matrix):
+        """
+        Pre-load weights into the PEs. Used for Weight Stationary (WS) dataflow.
+        """
+        for r in range(self.rows):
+            for c in range(self.cols):
+                self.grid[r][c].load_weight(weights_matrix[r][c])
+
+    def load_activations(self, activations_matrix):
+        """
+        Pre-load activations into the PEs. Used for Row Stationary (RS) dataflow.
+        """
+        for r in range(self.rows):
+            for c in range(self.cols):
+                self.grid[r][c].load_activation(activations_matrix[r][c])
+
+    def step(self, activation_inputs, secondary_inputs):
         """
         Advance the simulation by one clock cycle.
         
         Args:
             activation_inputs: List of length `rows` fed to the left edge of the array.
-            weight_inputs: List of length `cols` fed to the top edge of the array.
+            secondary_inputs: List of length `cols` fed to the top edge of the array.
+                              (weights for OS, partial sums for WS, weights for RS)
         """
         if len(activation_inputs) != self.rows:
             raise ValueError(f"Expected {self.rows} activation inputs, got {len(activation_inputs)}")
-        if len(weight_inputs) != self.cols:
-            raise ValueError(f"Expected {self.cols} weight inputs, got {len(weight_inputs)}")
+        if len(secondary_inputs) != self.cols:
+            raise ValueError(f"Expected {self.cols} secondary inputs, got {len(secondary_inputs)}")
             
         # Phase 1: Compute (Combinational logic)
         for r in range(self.rows):
             for c in range(self.cols):
-                # Activation comes from the left
+                # Activation/Partial sum comes from the left
                 act_in = activation_inputs[r] if c == 0 else self.grid[r][c-1].activation_out
-                # Weight comes from the top
-                wt_in = weight_inputs[c] if r == 0 else self.grid[r-1][c].weight_out
                 
-                self.grid[r][c].compute(act_in, wt_in)
+                # Secondary input (weight or partial sum) comes from the top
+                if self.dataflow in ["OS", "RS"]:
+                    sec_in = secondary_inputs[c] if r == 0 else self.grid[r-1][c].weight_out
+                elif self.dataflow == "WS":
+                    sec_in = secondary_inputs[c] if r == 0 else self.grid[r-1][c].partial_sum_out
+                else:
+                    sec_in = 0.0
+                
+                self.grid[r][c].compute(act_in, sec_in)
                 
         # Phase 2: Update (Clock edge latching)
         for r in range(self.rows):
@@ -52,11 +76,19 @@ class SystolicArray:
         for r in range(self.rows):
             row_activity = []
             for c in range(self.cols):
-                # A PE is active if it passes through a non-zero activation and weight this cycle.
-                # Since 'update' was called, we check the latched outputs.
-                act_active = self.grid[r][c].activation_out != 0.0
-                wt_active = self.grid[r][c].weight_out != 0.0
-                row_activity.append(1 if act_active and wt_active else 0)
+                if self.dataflow == "OS":
+                    act_active = self.grid[r][c].activation_out != 0.0
+                    sec_active = self.grid[r][c].weight_out != 0.0
+                elif self.dataflow == "WS":
+                    act_active = self.grid[r][c].activation_out != 0.0
+                    sec_active = self.grid[r][c].weight != 0.0
+                elif self.dataflow == "RS":
+                    act_active = self.grid[r][c].activation != 0.0
+                    sec_active = self.grid[r][c].weight_out != 0.0
+                else:
+                    act_active = False
+                    sec_active = False
+                row_activity.append(1 if act_active and sec_active else 0)
             activity.append(row_activity)
         return activity
         
