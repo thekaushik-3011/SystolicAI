@@ -144,3 +144,76 @@ def col2im(C, out_shape):
     # Transpose to (batch, out_channels, out_h, out_w)
     output = np.transpose(output, (0, 3, 1, 2))
     return output
+
+def get_quantization_params(val):
+    """ Calculate scale and zero point for asymmetric INT8 quantization """
+    val_min, val_max = np.min(val), np.max(val)
+    if val_max == val_min:
+        val_max += 1e-5
+    scale = (val_max - val_min) / 255.0
+    zero_point = np.round(-val_min / scale) - 128
+    zero_point = np.clip(zero_point, -128, 127)
+    return float(scale), float(zero_point)
+
+def quantize_matrix(val, scale, zero_point):
+    """ Quantize a float matrix to INT8 range (represented as floats) """
+    q_val = np.round(val / scale) + zero_point
+    return np.clip(q_val, -128, 127).astype(np.float64)
+
+def dequantize_matrix(q_val, scale, zero_point):
+    """ Dequantize an INT8 matrix back to float representation """
+    return (q_val - zero_point) * scale
+
+def prune_unstructured(matrix, sparsity_ratio):
+    """ Prune elements randomly to achieve a target sparsity ratio """
+    if sparsity_ratio <= 0.0:
+        return matrix.copy()
+    mask = np.random.rand(*matrix.shape) >= sparsity_ratio
+    return matrix * mask
+
+def prune_2to4(matrix):
+    """
+    Apply 2:4 structured sparsity.
+    Along the inner dimension (columns), for every block of 4 elements,
+    keep the 2 elements with the largest absolute values and zero the others.
+    """
+    pruned = matrix.copy()
+    rows, cols = pruned.shape
+    for r in range(rows):
+        for c in range(0, cols, 4):
+            end_idx = min(c + 4, cols)
+            group_size = end_idx - c
+            if group_size == 4:
+                group = pruned[r, c:end_idx]
+                abs_group = np.abs(group)
+                sort_idx = np.argsort(abs_group)  # ascending order of absolute values
+                pruned[r, c + sort_idx[0]] = 0.0
+                pruned[r, c + sort_idx[1]] = 0.0
+            elif group_size > 1:
+                # Pad case, prune smallest element if group is smaller than 4 but > 1
+                group = pruned[r, c:end_idx]
+                abs_group = np.abs(group)
+                sort_idx = np.argsort(abs_group)
+                # prune half of them
+                for i in range(group_size // 2):
+                    pruned[r, c + sort_idx[i]] = 0.0
+    return pruned
+
+def generate_attention_workload(batch, seq_len, num_heads, head_dim, seed=None):
+    """
+    Generate synthetic inputs for a Self-Attention layer.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+        
+    d_model = num_heads * head_dim
+    
+    Q_in = np.random.randint(1, 5, size=(batch, seq_len, d_model)).astype(float)
+    K_in = np.random.randint(1, 5, size=(batch, seq_len, d_model)).astype(float)
+    V_in = np.random.randint(1, 5, size=(batch, seq_len, d_model)).astype(float)
+    
+    W_q = np.random.randint(1, 5, size=(d_model, d_model)).astype(float)
+    W_k = np.random.randint(1, 5, size=(d_model, d_model)).astype(float)
+    W_v = np.random.randint(1, 5, size=(d_model, d_model)).astype(float)
+    
+    return Q_in, K_in, V_in, W_q, W_k, W_v

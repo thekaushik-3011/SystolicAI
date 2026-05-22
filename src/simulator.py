@@ -2,32 +2,59 @@
 Cycle-accurate simulator engine.
 """
 from src.array import SystolicArray
-from src.workloads import skew_matrices, im2col, col2im
+from src.workloads import skew_matrices, im2col, col2im, quantize_matrix, dequantize_matrix
 import numpy as np
 
 class Simulator:
-    def __init__(self, array_rows, array_cols, dataflow="OS"):
+    def __init__(self, array_rows, array_cols, dataflow="OS", precision="FP32"):
         self.array_rows = array_rows
         self.array_cols = array_cols
         self.dataflow = dataflow
-        self.array = SystolicArray(array_rows, array_cols, dataflow=dataflow)
+        self.precision = precision
+        self.array = SystolicArray(array_rows, array_cols, dataflow=dataflow, precision=precision)
         
         self.total_cycles = 0
-        self.history = []  # To store activity per cycle
+        self.skipped_ops = 0  # Number of MACs skipped due to sparsity
+        self.history = []     # To store activity per cycle
         
     def run(self, A, B):
         """
         Run the simulation for matrix multiplication C = A x B.
-        Handles tiling if A and B are larger than the array.
+        Handles quantization if precision is INT8.
         """
-        if self.dataflow == "OS":
-            return self._run_os(A, B)
-        elif self.dataflow == "WS":
-            return self._run_ws(A, B)
-        elif self.dataflow == "RS":
-            return self._run_rs(A, B)
+        if self.precision == "INT8":
+            # Symmetric INT8 quantization
+            max_A = np.max(np.abs(A))
+            max_B = np.max(np.abs(B))
+            
+            scale_A = float(max_A / 127.0) if max_A > 0 else 1.0
+            scale_B = float(max_B / 127.0) if max_B > 0 else 1.0
+            
+            A_quant = quantize_matrix(A, scale_A, 0.0)
+            B_quant = quantize_matrix(B, scale_B, 0.0)
+            
+            # Execute quantized simulation
+            if self.dataflow == "OS":
+                C_quant = self._run_os(A_quant, B_quant)
+            elif self.dataflow == "WS":
+                C_quant = self._run_ws(A_quant, B_quant)
+            elif self.dataflow == "RS":
+                C_quant = self._run_rs(A_quant, B_quant)
+            else:
+                raise ValueError(f"Unknown dataflow: {self.dataflow}")
+                
+            # Dequantize back to float representation
+            C = dequantize_matrix(C_quant, scale_A * scale_B, 0.0)
+            return C
         else:
-            raise ValueError(f"Unknown dataflow: {self.dataflow}")
+            if self.dataflow == "OS":
+                return self._run_os(A, B)
+            elif self.dataflow == "WS":
+                return self._run_ws(A, B)
+            elif self.dataflow == "RS":
+                return self._run_rs(A, B)
+            else:
+                raise ValueError(f"Unknown dataflow: {self.dataflow}")
             
     def _run_os(self, A, B):
         M, K = A.shape
@@ -65,6 +92,14 @@ class Simulator:
                     act_in = skewed_A[cycle, :].tolist()
                     wt_in = skewed_B[cycle, :].tolist()
                     
+                    # Track zero-skipping (sparsity) before updating state
+                    for r in range(self.array_rows):
+                        for c in range(self.array_cols):
+                            act_val = act_in[r] if c == 0 else self.array.grid[r][c-1].activation_out
+                            wt_val = wt_in[c] if r == 0 else self.array.grid[r-1][c].weight_out
+                            if act_val == 0.0 or wt_val == 0.0:
+                                self.skipped_ops += 1
+                                
                     self.array.step(act_in, wt_in)
                     self.total_cycles += 1
                     
@@ -87,9 +122,6 @@ class Simulator:
         C = np.zeros((M, N))
         
         # Tile execution
-        # WS: pre-load weight tile of shape (array_rows, array_cols)
-        # So we tile K by array_rows, and N by array_cols.
-        # We tile M by array_rows.
         for m in range(0, M, self.array_rows):
             for n in range(0, N, self.array_cols):
                 for k in range(0, K, self.array_rows):
@@ -129,6 +161,14 @@ class Simulator:
                         # Partial sums from top are always 0s
                         wt_in = [0.0] * self.array_cols
                         
+                        # Track zero-skipping (sparsity)
+                        for r in range(self.array_rows):
+                            for c in range(self.array_cols):
+                                act_val = act_in[r] if c == 0 else self.array.grid[r][c-1].activation_out
+                                wt_val = self.array.grid[r][c].weight
+                                if act_val == 0.0 or wt_val == 0.0:
+                                    self.skipped_ops += 1
+                                    
                         self.array.step(act_in, wt_in)
                         self.total_cycles += 1
                         
@@ -154,9 +194,6 @@ class Simulator:
         C = np.zeros((M, N))
         
         # Tile execution
-        # RS: pre-load activation tile of shape (array_rows, array_cols)
-        # So we tile M by array_rows, and K by array_cols.
-        # We tile N by array_cols.
         for m in range(0, M, self.array_rows):
             for k in range(0, K, self.array_cols):
                 for n in range(0, N, self.array_cols):
@@ -196,6 +233,14 @@ class Simulator:
                         # Partial sums from left are always 0s
                         act_in = [0.0] * self.array_rows
                         
+                        # Track zero-skipping (sparsity)
+                        for r in range(self.array_rows):
+                            for c in range(self.array_cols):
+                                act_val = self.array.grid[r][c].activation
+                                wt_val = wt_in[c] if r == 0 else self.array.grid[r-1][c].weight_out
+                                if act_val == 0.0 or wt_val == 0.0:
+                                    self.skipped_ops += 1
+                                    
                         self.array.step(act_in, wt_in)
                         self.total_cycles += 1
                         
@@ -216,13 +261,6 @@ class Simulator:
     def run_conv2d(self, image, filters):
         """
         Run simulation for 2D convolution.
-        
-        Args:
-            image: numpy array of shape (batch, in_channels, height, width)
-            filters: numpy array of shape (out_channels, in_channels, kernel_size, kernel_size)
-            
-        Returns:
-            output: numpy array of shape (batch, out_channels, out_h, out_w)
         """
         # Lower convolution to GEMM
         A, B, out_shape = im2col(image, filters)
@@ -234,3 +272,48 @@ class Simulator:
         output = col2im(C, out_shape)
         
         return output
+
+    def run_attention(self, Q_in, K_in, V_in, W_q, W_k, W_v):
+        """
+        Run Self-Attention layer operations sequentially on the systolic array.
+        """
+        batch, seq_len, d_model = Q_in.shape
+        
+        # Flatten batches for projection multiplications
+        Q_flat = Q_in.reshape(-1, d_model)
+        K_flat = K_in.reshape(-1, d_model)
+        V_flat = V_in.reshape(-1, d_model)
+        
+        # Projection multiplications
+        Q = self.run(Q_flat, W_q)
+        K = self.run(K_flat, W_k)
+        V = self.run(V_flat, W_v)
+        
+        # Reshape projected matrices back to (batch, seq_len, d_model)
+        Q = Q.reshape(batch, seq_len, d_model)
+        K = K.reshape(batch, seq_len, d_model)
+        V = V.reshape(batch, seq_len, d_model)
+        
+        # Attention scores scale factor
+        scale_factor = 1.0 / np.sqrt(d_model)
+        O = np.zeros((batch, seq_len, d_model))
+        
+        for b in range(batch):
+            Q_b = Q[b]  # (seq_len, d_model)
+            K_b = K[b]  # (seq_len, d_model)
+            V_b = V[b]  # (seq_len, d_model)
+            
+            # 1. Scores calculation (S_b = Q_b x K_b^T)
+            S_b = self.run(Q_b, K_b.T)
+            
+            # Softmax calculation
+            S_scaled = S_b * scale_factor
+            S_max = np.max(S_scaled, axis=-1, keepdims=True)
+            exp_S = np.exp(S_scaled - S_max)
+            P_b = exp_S / np.sum(exp_S, axis=-1, keepdims=True)
+            
+            # 2. Attention output (O_b = P_b x V_b)
+            O_b = self.run(P_b, V_b)
+            O[b] = O_b
+            
+        return O

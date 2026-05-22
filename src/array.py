@@ -4,11 +4,12 @@ Systolic Array Grid Module.
 from src.pe import ProcessingElement
 
 class SystolicArray:
-    def __init__(self, rows, cols, dataflow="OS"):
+    def __init__(self, rows, cols, dataflow="OS", precision="FP32"):
         self.rows = rows
         self.cols = cols
         self.dataflow = dataflow
-        self.grid = [[ProcessingElement(r, c, dataflow=dataflow) for c in range(cols)] for r in range(rows)]
+        self.precision = precision
+        self.grid = [[ProcessingElement(r, c, dataflow=dataflow, precision=precision) for c in range(cols)] for r in range(rows)]
         
     def load_weights(self, weights_matrix):
         """

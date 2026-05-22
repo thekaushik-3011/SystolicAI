@@ -1,12 +1,14 @@
 """
 Processing Element (PE) Module.
 """
+import numpy as np
 
 class ProcessingElement:
-    def __init__(self, row, col, dataflow="OS"):
+    def __init__(self, row, col, dataflow="OS", precision="FP32"):
         self.row = row
         self.col = col
         self.dataflow = dataflow
+        self.precision = precision
         
         # Internal state
         self.partial_sum = 0.0 # Used in OS
@@ -32,25 +34,47 @@ class ProcessingElement:
         In RS: secondary_in is weight_in, activation_in is partial_sum_in
         """
         if self.dataflow == "OS":
-            weight_in = secondary_in
-            # Compute MAC and accumulate locally
-            self._next_partial_sum = self.partial_sum + (activation_in * weight_in)
+            if self.precision == "INT8":
+                act_in = float(np.clip(np.round(activation_in), -128, 127))
+                weight_in = float(np.clip(np.round(secondary_in), -128, 127))
+                sum_val = float(np.clip(np.round(self.partial_sum + (act_in * weight_in)), -2147483648, 2147483647))
+            else:
+                act_in = activation_in
+                weight_in = secondary_in
+                sum_val = self.partial_sum + (act_in * weight_in)
+                
+            self._next_partial_sum = sum_val
             # Pass through inputs for next cycle
-            self._next_activation_out = activation_in
+            self._next_activation_out = act_in
             self._next_weight_out = weight_in
             
         elif self.dataflow == "WS":
-            partial_sum_in = secondary_in
-            # Compute MAC and pass partial sum down
-            self._next_partial_sum_out = partial_sum_in + (activation_in * self.weight)
+            if self.precision == "INT8":
+                act_in = float(np.clip(np.round(activation_in), -128, 127))
+                self.weight = float(np.clip(np.round(self.weight), -128, 127))
+                partial_sum_in = float(np.clip(np.round(secondary_in), -2147483648, 2147483647))
+                sum_val = float(np.clip(np.round(partial_sum_in + (act_in * self.weight)), -2147483648, 2147483647))
+            else:
+                act_in = activation_in
+                partial_sum_in = secondary_in
+                sum_val = partial_sum_in + (act_in * self.weight)
+                
+            self._next_partial_sum_out = sum_val
             # Pass activation right
-            self._next_activation_out = activation_in
+            self._next_activation_out = act_in
 
         elif self.dataflow == "RS":
-            weight_in = secondary_in
-            partial_sum_in = activation_in
-            # Compute MAC and pass partial sum right
-            self._next_partial_sum_out = partial_sum_in + (self.activation * weight_in)
+            if self.precision == "INT8":
+                weight_in = float(np.clip(np.round(secondary_in), -128, 127))
+                self.activation = float(np.clip(np.round(self.activation), -128, 127))
+                partial_sum_in = float(np.clip(np.round(activation_in), -2147483648, 2147483647))
+                sum_val = float(np.clip(np.round(partial_sum_in + (self.activation * weight_in)), -2147483648, 2147483647))
+            else:
+                weight_in = secondary_in
+                partial_sum_in = activation_in
+                sum_val = partial_sum_in + (self.activation * weight_in)
+                
+            self._next_partial_sum_out = sum_val
             # Pass weight down
             self._next_weight_out = weight_in
             # Pass partial sum right (using the horizontal activation_out wire)
