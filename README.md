@@ -101,4 +101,4 @@ pytest tests/
 - **Phase 1 (Completed):** Basic systolic simulator, output stationary matmul, metrics, and visualization.
 - **Phase 2 (Completed):** CNN convolution support, multiple dataflows (Weight Stationary, Row Stationary), correctness verification alerts, Streamlit UI controls.
 - **Phase 3 (Completed):** Sparse matrix acceleration, quantization support, transformer attention kernels.
-- **Phase 4:** RTL backend, FPGA mapping, RISC-V custom instruction integration.
+- **Phase 4 (Completed):** RTL backend, FPGA mapping, RISC-V custom instruction integration.
