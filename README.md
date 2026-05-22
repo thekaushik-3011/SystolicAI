@@ -30,7 +30,10 @@ SystolicAI aims to simulate these architectural principles in software. Instead 
 5. **Matrix Multiplication Engine**: Tiled execution and skewing schedulers supporting arbitrary matrix dimensions.
 6. **Cycle-Accurate Simulation**: Advances one clock cycle at a time, tracking PE grid activity, power state, and compute latency.
 7. **Performance Metrics**: Reports total cycles, throughput (MACs/cycle), and spatial PE utilization.
-8. **Visualization Dashboard**: Streamlit-based interactive web dashboard with config controls for array size, dataflow, workload parameters, correctness verification alerts, and cycle-by-cycle activity heatmaps.
+8. **Simulated Quantization (INT8)**: Models 8-bit integer operations on hardware, clipping inputs/registers to 8-bit range `[-128, 127]` and partial sum accumulators to 32-bit integer range `[-2^31, 2^31 - 1]`.
+9. **Sparsity-driven Acceleration**: Supports Unstructured and 2:4 Structured zero-skipping logic to optimize cycle counts and report dynamic power savings.
+10. **Transformer Attention Kernels**: Lowers and schedules sequential Multi-Head Self-Attention layers onto the systolic array.
+11. **Visualization Dashboard**: Streamlit-based interactive web dashboard with config controls for array size, dataflow, precision, sparsity, workload parameters, correctness verification alerts, and cycle-by-cycle activity heatmaps.
 
 ## 🏗️ System Architecture
 
@@ -97,5 +100,5 @@ pytest tests/
 
 - **Phase 1 (Completed):** Basic systolic simulator, output stationary matmul, metrics, and visualization.
 - **Phase 2 (Completed):** CNN convolution support, multiple dataflows (Weight Stationary, Row Stationary), correctness verification alerts, Streamlit UI controls.
-- **Phase 3:** Sparse matrix acceleration, quantization support, transformer attention kernels.
+- **Phase 3 (Completed):** Sparse matrix acceleration, quantization support, transformer attention kernels.
 - **Phase 4:** RTL backend, FPGA mapping, RISC-V custom instruction integration.
